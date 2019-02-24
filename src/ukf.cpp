@@ -37,10 +37,10 @@ UKF::UKF()
   Xsig_pred_ = MatrixXd::Zero(n_x_, 2 * n_aug_ + 1);
 
   // Process noise standard deviation longitudinal acceleration in m/s^2
-  std_a_ = 1;
+  std_a_ = 0.5;
 
   // Process noise standard deviation yaw acceleration in rad/s^2
-  std_yawdd_ = 1;
+  std_yawdd_ = 1.0;
 
   /**
    * DO NOT MODIFY measurement noise values below.
@@ -126,9 +126,9 @@ void UKF::ProcessMeasurement(MeasurementPackage meas_package)
 
       P_(0,0) = R_laser_(0,0);
       P_(1,1) = R_laser_(1,1);
-      P_(2,2) = 10.0;
-      P_(3,3) = 10.0;
-      P_(4,4) = 10.0;
+      P_(2,2) = 1.0;
+      P_(3,3) = 1.0;
+      P_(4,4) = 1.0;
     }
     else if (meas_package.sensor_type_ == MeasurementPackage::RADAR)
     {
@@ -144,9 +144,9 @@ void UKF::ProcessMeasurement(MeasurementPackage meas_package)
 
       P_(0,0) = R_laser_(0,0);
       P_(1,1) = R_laser_(1,1);
-      P_(2,2) = 10.0;
-      P_(3,3) = 10.0;
-      P_(4,4) = 10.0;
+      P_(2,2) = 1.0;
+      P_(3,3) = 1.0;
+      P_(4,4) = 1.0;
     }
     else
     {
@@ -327,12 +327,6 @@ void UKF::UpdateLidar(const MeasurementPackage &meas_package)
       // const double v = Xsig_pred_(2,i);
       // const double psi = Xsig_pred_(3,i);
       // const double psi_dot = Xsig_pred_(4,i); //unused for radar update
-      
-      using ::std::sqrt;
-      using ::std::pow;
-      using ::std::atan2;
-      using ::std::cos;
-      using ::std::sin;
       
       Zsig(0,i) = px;
       Zsig(1,i) = py; //@todo: verify assumption
