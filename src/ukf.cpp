@@ -11,7 +11,7 @@ using Eigen::VectorXd;
 UKF::UKF()
 {
   // if this is false, laser measurements will be ignored (except during init)
-  use_laser_ = false;
+  use_laser_ = true;
 
   // if this is false, radar measurements will be ignored (except during init)
   use_radar_ = true;
@@ -116,7 +116,6 @@ void UKF::ProcessMeasurement(MeasurementPackage meas_package)
     std::cout << "initializing" << std::endl;
     if (meas_package.sensor_type_ == MeasurementPackage::LASER)
     {
-      return; // remain uninitialized;
       const double px = meas_package.raw_measurements_(0);
       const double py = meas_package.raw_measurements_(1);
 
@@ -318,6 +317,70 @@ void UKF::UpdateLidar(const MeasurementPackage &meas_package)
    * covariance, P_.
    * You can also calculate the lidar NIS, if desired.
    */
+
+  MatrixXd Zsig = MatrixXd::Zero(2, 2 * n_aug_ + 1);
+
+  for (int i = 0; i < Xsig_pred_.cols(); ++i)
+  {
+      const double px = Xsig_pred_(0,i);
+      const double py = Xsig_pred_(1,i);
+      // const double v = Xsig_pred_(2,i);
+      // const double psi = Xsig_pred_(3,i);
+      // const double psi_dot = Xsig_pred_(4,i); //unused for radar update
+      
+      using ::std::sqrt;
+      using ::std::pow;
+      using ::std::atan2;
+      using ::std::cos;
+      using ::std::sin;
+      
+      Zsig(0,i) = px;
+      Zsig(1,i) = py; //@todo: verify assumption
+      //@todo: make sure px, py are not less than eps (equal to 0)
+  }
+
+  VectorXd z_pred = VectorXd::Zero(2);
+  
+  for(int i = 0; i < Zsig.cols(); ++i)
+  {
+      z_pred += Zsig.col(i) * weights_(i);
+  }
+  
+  // calculate innovation covariance matrix S
+  
+  // measurement covariance matrix S
+  MatrixXd S = MatrixXd::Zero(2,2);
+  
+  for(int i = 0; i < Zsig.cols(); ++i)
+  {
+      const Eigen::MatrixXd diff = Zsig.col(i) - z_pred;
+      S += weights_(i) * diff * diff.transpose();
+  }
+  
+  S += R_laser_;
+
+  MatrixXd Tc = MatrixXd::Zero(n_x_, 2);
+
+  if (Xsig_pred_.cols() != Zsig.cols())
+  {
+    std::runtime_error("sigma point count mismatch");
+  }
+  
+  for(int i = 0; i < Zsig.cols(); ++i)
+  {
+      Tc += weights_(i) * (Xsig_pred_.col(i) - x_) * (Zsig.col(i) - z_pred).transpose();
+  }
+
+  // calculate Kalman gain K;
+  
+  Eigen::MatrixXd K = Tc * S.inverse();
+
+  // update state mean and covariance matrix
+  
+  x_ += K * (meas_package.raw_measurements_ - z_pred);
+  
+  P_ -= K * S * K.transpose();
+
 }
 
 void UKF::UpdateRadar(const MeasurementPackage &meas_package)
