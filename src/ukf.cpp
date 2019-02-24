@@ -11,7 +11,7 @@ using Eigen::VectorXd;
 UKF::UKF()
 {
   // if this is false, laser measurements will be ignored (except during init)
-  use_laser_ = true;
+  use_laser_ = false;
 
   // if this is false, radar measurements will be ignored (except during init)
   use_radar_ = true;
@@ -62,6 +62,18 @@ UKF::UKF()
   // Radar measurement noise standard deviation radius change in m/s
   std_radrd_ = 0.3;
 
+  R_radar_ = Eigen::MatrixXd::Zero(3,3);
+  R_laser_ = Eigen::MatrixXd::Zero(2,2);
+
+  using ::std::pow;
+
+  R_radar_(0,0) = pow(std_radr_, 2);
+  R_radar_(1,1) = pow(std_radphi_, 2);
+  R_radar_(2,2) = pow(std_radrd_, 2);
+
+  R_laser_(0,0) = pow(std_laspx_, 2);
+  R_laser_(1,1) = pow(std_laspy_, 2);
+
   /**
    * End DO NOT MODIFY section for measurement noise values 
    */
@@ -104,11 +116,38 @@ void UKF::ProcessMeasurement(MeasurementPackage meas_package)
     std::cout << "initializing" << std::endl;
     if (meas_package.sensor_type_ == MeasurementPackage::LASER)
     {
-      //@todo: initialize state & cov mat
+      return; // remain uninitialized;
+      const double px = meas_package.raw_measurements_(0);
+      const double py = meas_package.raw_measurements_(1);
+
+      x_.fill(0.0);
+      x_(0) = px;
+      x_(1) = py;
+      x_(3) = ::std::atan2(py, px);
+
+      P_(0,0) = R_laser_(0,0);
+      P_(1,1) = R_laser_(1,1);
+      P_(2,2) = 10.0;
+      P_(3,3) = 10.0;
+      P_(4,4) = 10.0;
     }
     else if (meas_package.sensor_type_ == MeasurementPackage::RADAR)
     {
-      //@todo: initialize state & cov mat
+      const double rho = meas_package.raw_measurements_(0);
+      const double phi = meas_package.raw_measurements_(1);
+      //const double phidot = meas_package.raw_measurements_(2); unusable for initialization?
+
+      x_(0) = rho * ::std::cos(phi);
+      x_(1) = rho * ::std::sin(phi);
+      x_(3) = 0.0;
+      x_(3) = 0.0;
+      x_(4) = 0.0;
+
+      P_(0,0) = R_laser_(0,0);
+      P_(1,1) = R_laser_(1,1);
+      P_(2,2) = 10.0;
+      P_(3,3) = 10.0;
+      P_(4,4) = 10.0;
     }
     else
     {
@@ -289,4 +328,69 @@ void UKF::UpdateRadar(const MeasurementPackage &meas_package)
    * covariance, P_.
    * You can also calculate the radar NIS, if desired.
    */
+
+  MatrixXd Zsig = MatrixXd::Zero(3, 2 * n_aug_ + 1);
+
+  for (int i = 0; i < Xsig_pred_.cols(); ++i)
+  {
+      const double px = Xsig_pred_(0,i);
+      const double py = Xsig_pred_(1,i);
+      const double v = Xsig_pred_(2,i);
+      const double psi = Xsig_pred_(3,i);
+      // const double psi_dot = Xsig_pred_(4,i); //unused for radar update
+      
+      using ::std::sqrt;
+      using ::std::pow;
+      using ::std::atan2;
+      using ::std::cos;
+      using ::std::sin;
+      
+      Zsig(0,i) = sqrt(pow(px,2) + pow(py,2));
+      Zsig(1,i) = atan2(py, px); //@todo: verify assumption
+      Zsig(2,i) = (px * cos(psi) * v + py * sin(psi) * v) / sqrt(pow(px,2) + pow(py,2));
+      //@todo: make sure px, py are not less than eps (equal to 0)
+  }
+
+  VectorXd z_pred = VectorXd::Zero(3);
+  
+  for(int i = 0; i < Zsig.cols(); ++i)
+  {
+      z_pred += Zsig.col(i) * weights_(i);
+  }
+  
+  // calculate innovation covariance matrix S
+  
+  // measurement covariance matrix S
+  MatrixXd S = MatrixXd::Zero(3,3);
+  
+  for(int i = 0; i < Zsig.cols(); ++i)
+  {
+      const Eigen::MatrixXd diff = Zsig.col(i) - z_pred;
+      S += weights_(i) * diff * diff.transpose();
+  }
+  
+  S += R_radar_;
+
+  MatrixXd Tc = MatrixXd::Zero(n_x_, 3);
+
+  if (Xsig_pred_.cols() != Zsig.cols())
+  {
+    std::runtime_error("sigma point count mismatch");
+  }
+  
+  for(int i = 0; i < Zsig.cols(); ++i)
+  {
+      Tc += weights_(i) * (Xsig_pred_.col(i) - x_) * (Zsig.col(i) - z_pred).transpose();
+  }
+
+  // calculate Kalman gain K;
+  
+  Eigen::MatrixXd K = Tc * S.inverse();
+
+  // update state mean and covariance matrix
+  
+  x_ += K * (meas_package.raw_measurements_ - z_pred);
+  
+  P_ -= K * S * K.transpose();
+
 }
